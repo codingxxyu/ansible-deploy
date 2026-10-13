@@ -208,23 +208,6 @@
         state: present
         src: /tmp/ansible-demo-service.yml
 
-    - name: Wait for the application Deployment to become ready
-      kubernetes.core.k8s_info:
-        api_version: apps/v1
-        kind: Deployment
-        name: "{{ app.application_name }}"
-        namespace: "{{ app.namespace }}"
-        kubeconfig: "{{ kubeconfig }}"
-        context: "{{ kube_context }}"
-        validate_certs: "{{ validate_certs }}"
-      register: deployment_info
-      until:
-        - deployment_info.resources | length == 1
-        - (deployment_info.resources[0].status.readyReplicas | default(0) | int) >= (app.replicas | int)
-        - (deployment_info.resources[0].status.updatedReplicas | default(0) | int) >= (app.replicas | int)
-      retries: 30
-      delay: 5
-
     - name: Report the completed application release
       ansible.builtin.debug:
         msg:
@@ -232,5 +215,4 @@
           namespace: "{{ app.namespace }}"
           image: "{{ app.image }}"
           workload_cluster: "{{ workload_cluster_name }}"
-          ready_replicas: "{{ deployment_info.resources[0].status.readyReplicas | default(0) | int }}"
           cluster_context: "{{ kube_context }}"

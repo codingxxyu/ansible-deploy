@@ -89,6 +89,8 @@ ansible-playbook \
   /work/project/deployment/playbooks/deploy.yml
 ```
 
+成功标志：Deployment / Service 创建完成，最后打印 `application: nginx`，并且 `failed=0`。Playbook 不等 Pod Ready，避免出现 `FAILED - RETRYING`。Pod 状态到控制台或用第 5 节的 kubectl 看。
+
 更新再跑同一条。退出容器：`exit`。
 
 ---
