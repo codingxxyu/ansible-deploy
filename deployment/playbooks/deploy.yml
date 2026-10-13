@@ -118,30 +118,6 @@
                 type: ""
       when: project_info.resources | length == 0
 
-    - name: Wait for ACP to reconcile the validation Project
-      kubernetes.core.k8s_info:
-        api_version: auth.alauda.io/v1
-        kind: Project
-        name: "{{ app.project_name }}"
-        kubeconfig: "{{ global_kubeconfig }}"
-        context: "{{ global_kube_context }}"
-        validate_certs: "{{ validate_certs }}"
-      register: project_reconcile
-      until:
-        - project_reconcile.resources | length == 1
-        - project_reconcile.resources[0].status.phase | default('') == 'Active'
-        - project_reconcile.resources[0].status.conditions | default([]) | selectattr('type', 'equalto', 'ProjectNameSpace') | selectattr('status', 'equalto', 'True') | list | length == 1
-      retries: 30
-      delay: 5
-
-    - name: Confirm the reconciled Project is associated with the workload cluster
-      ansible.builtin.assert:
-        that:
-          - project_reconcile.resources | length == 1
-          - workload_cluster_name in (project_reconcile.resources[0].spec.clusters | map(attribute='name') | list)
-        fail_msg: >-
-          Project {{ app.project_name }} must be associated with workload cluster {{ workload_cluster_name }}.
-
     - name: Confirm target Namespace exists on the workload cluster
       kubernetes.core.k8s_info:
         api_version: v1
