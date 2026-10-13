@@ -28,16 +28,7 @@ usage() {
     'Usage:' \
     '  deploy                         Run the mounted or baked deployment package' \
     '  shell                         Open an interactive shell' \
-    '  ansible-playbook ...          Run an explicit Ansible command' \
-    '' \
-    'Package lookup order:' \
-    '  1. DEPLOY_PACKAGE, if set' \
-    '  2. /work/project/deployment, if the playbook is mounted there' \
-    '  3. /opt/deploy-package, baked into the image' \
-    '' \
-    'Environment:' \
-    '  DEPLOY_PACKAGE, DEPLOY_CONFIG, KUBECONFIG, ACP_GLOBAL_KUBECONFIG' \
-    '  ACP_KUBE_CONTEXT, ACP_GLOBAL_KUBE_CONTEXT, ACP_VALIDATE_CERTS, ACP_WORKLOAD_CLUSTER'
+    '  ansible-playbook ...          Run an explicit Ansible command'
 }
 
 run_deploy() {
@@ -68,23 +59,24 @@ run_deploy() {
     -e "global_kubeconfig=$global_kubeconfig"
 }
 
-command="${1:-shell}"
+if [ "$#" -eq 0 ]; then
+  command="shell"
+else
+  command="$1"
+  shift
+fi
+
 case "$command" in
   deploy)
-    shift
-    run_deploy "$@"
+    run_deploy
     ;;
   shell)
-    shift
     exec /bin/sh "$@"
-    ;;
-  ansible-playbook|ansible|ansible-galaxy|kubectl)
-    exec "$@"
     ;;
   help|-h|--help)
     usage
     ;;
   *)
-    exec "$@"
+    exec "$command" "$@"
     ;;
 esac
