@@ -1,0 +1,227 @@
+---
+- name: Publish a demo application to an ACP workload cluster
+  hosts: localhost
+  gather_facts: false
+
+  vars:
+    deploy_package: "{{ lookup('env', 'DEPLOY_PACKAGE') | default('/work/project/deployment', true) }}"
+    deploy_config: "{{ lookup('env', 'DEPLOY_CONFIG') | default(deploy_package + '/config/customer.example.yaml', true) }}"
+    kubeconfig: "{{ lookup('env', 'KUBECONFIG') | default('/run/secrets/workload-kubeconfig', true) }}"
+    global_kubeconfig: "{{ lookup('env', 'ACP_GLOBAL_KUBECONFIG') | default('/run/secrets/global-kubeconfig', true) }}"
+    kube_context: "{{ lookup('env', 'ACP_KUBE_CONTEXT') | default('proxy-connect', true) }}"
+    global_kube_context: "{{ lookup('env', 'ACP_GLOBAL_KUBE_CONTEXT') | default('proxy-connect', true) }}"
+    workload_cluster_name: prod-cn-north
+    validate_certs: "{{ lookup('env', 'ACP_VALIDATE_CERTS') | default('true', true) | bool }}"
+
+  tasks:
+    - name: Load deployment parameters
+      ansible.builtin.include_vars:
+        file: "{{ deploy_config }}"
+        name: app
+
+    - name: Validate deployment parameters
+      ansible.builtin.assert:
+        that:
+          - app.project_name == 'ansible'
+          - app.namespace == 'ansible-demo'
+          - app.namespace is string
+          - app.namespace | length > 0
+          - app.application_name is string
+          - app.application_name | length > 0
+          - app.image is string
+          - app.image | length > 0
+          - app.replicas | int > 0
+          - app.container_port | int > 0
+          - app.service_port | int > 0
+        fail_msg: "Deployment config is incomplete or invalid."
+
+    - name: Confirm target Project on the Global cluster
+      kubernetes.core.k8s_info:
+        api_version: auth.alauda.io/v1
+        kind: Project
+        name: "{{ app.project_name }}"
+        kubeconfig: "{{ global_kubeconfig }}"
+        context: "{{ global_kube_context }}"
+        validate_certs: "{{ validate_certs }}"
+      register: project_info
+
+    - name: Create the validation Project on Global when absent
+      kubernetes.core.k8s:
+        api_version: auth.alauda.io/v1
+        kind: Project
+        name: "{{ app.project_name }}"
+        kubeconfig: "{{ global_kubeconfig }}"
+        context: "{{ global_kube_context }}"
+        validate_certs: "{{ validate_certs }}"
+        state: present
+        definition:
+          metadata:
+            name: "{{ app.project_name }}"
+            labels:
+              cpaas.io/project: "{{ app.project_name }}"
+              cpaas.io/project.level: "1"
+              cpaas.io/project.parent: ""
+            annotations:
+              cpaas.io/display-name: Ansible
+              cpaas.io/description: Ansible deployment validation project
+          spec:
+            clusters:
+              - name: "{{ workload_cluster_name }}"
+                quota: {}
+                type: ""
+      when: project_info.resources | length == 0
+
+    - name: Wait for ACP to reconcile the validation Project
+      kubernetes.core.k8s_info:
+        api_version: auth.alauda.io/v1
+        kind: Project
+        name: "{{ app.project_name }}"
+        kubeconfig: "{{ global_kubeconfig }}"
+        context: "{{ global_kube_context }}"
+        validate_certs: "{{ validate_certs }}"
+      register: project_reconcile
+      until:
+        - project_reconcile.resources | length == 1
+        - project_reconcile.resources[0].status.phase | default('') == 'Active'
+        - project_reconcile.resources[0].status.conditions | default([]) | selectattr('type', 'equalto', 'ProjectNameSpace') | selectattr('status', 'equalto', 'True') | list | length == 1
+      retries: 30
+      delay: 5
+
+    - name: Confirm the reconciled Project is associated with the workload cluster
+      ansible.builtin.assert:
+        that:
+          - project_reconcile.resources | length == 1
+          - workload_cluster_name in (project_reconcile.resources[0].spec.clusters | map(attribute='name') | list)
+        fail_msg: >-
+          Project ansible must be associated with workload cluster prod-cn-north.
+
+    - name: Confirm target Namespace exists on the workload cluster
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Namespace
+        name: "{{ app.namespace }}"
+        kubeconfig: "{{ kubeconfig }}"
+        context: "{{ kube_context }}"
+        validate_certs: "{{ validate_certs }}"
+      register: namespace_info
+
+    - name: Create the validation Namespace when absent
+      kubernetes.core.k8s:
+        api_version: v1
+        kind: Namespace
+        name: "{{ app.namespace }}"
+        kubeconfig: "{{ kubeconfig }}"
+        context: "{{ kube_context }}"
+        validate_certs: "{{ validate_certs }}"
+        state: present
+        definition:
+          metadata:
+            name: "{{ app.namespace }}"
+            labels:
+              cpaas.io/cluster: "{{ workload_cluster_name }}"
+              cpaas.io/project: "{{ app.project_name }}"
+              cpaas.io/project-inner-namespace: "{{ app.project_name }}"
+      when: namespace_info.resources | length == 0
+
+    - name: Re-read the validation Namespace
+      kubernetes.core.k8s_info:
+        api_version: v1
+        kind: Namespace
+        name: "{{ app.namespace }}"
+        kubeconfig: "{{ kubeconfig }}"
+        context: "{{ kube_context }}"
+        validate_certs: "{{ validate_certs }}"
+      register: namespace_info_after
+
+    - name: Apply application Deployment
+      kubernetes.core.k8s:
+        api_version: apps/v1
+        kind: Deployment
+        name: "{{ app.application_name }}"
+        namespace: "{{ app.namespace }}"
+        kubeconfig: "{{ kubeconfig }}"
+        context: "{{ kube_context }}"
+        validate_certs: "{{ validate_certs }}"
+        state: present
+        definition:
+          metadata:
+            labels:
+              app.kubernetes.io/name: "{{ app.application_name }}"
+              app.kubernetes.io/managed-by: ansible
+          spec:
+            replicas: "{{ app.replicas | int }}"
+            selector:
+              matchLabels:
+                app.kubernetes.io/name: "{{ app.application_name }}"
+            template:
+              metadata:
+                labels:
+                  app.kubernetes.io/name: "{{ app.application_name }}"
+              spec:
+                containers:
+                  - name: "{{ app.application_name }}"
+                    image: "{{ app.image }}"
+                    imagePullPolicy: "{{ app.image_pull_policy | default('IfNotPresent') }}"
+                    ports:
+                      - name: app
+                        containerPort: "{{ app.container_port | int }}"
+                    readinessProbe:
+                      tcpSocket:
+                        port: app
+                      initialDelaySeconds: 5
+                      periodSeconds: 5
+                    livenessProbe:
+                      tcpSocket:
+                        port: app
+                      initialDelaySeconds: 15
+                      periodSeconds: 10
+
+    - name: Apply application Service
+      kubernetes.core.k8s:
+        api_version: v1
+        kind: Service
+        name: "{{ app.application_name }}"
+        namespace: "{{ app.namespace }}"
+        kubeconfig: "{{ kubeconfig }}"
+        context: "{{ kube_context }}"
+        validate_certs: "{{ validate_certs }}"
+        state: present
+        definition:
+          metadata:
+            labels:
+              app.kubernetes.io/name: "{{ app.application_name }}"
+              app.kubernetes.io/managed-by: ansible
+          spec:
+            type: ClusterIP
+            selector:
+              app.kubernetes.io/name: "{{ app.application_name }}"
+            ports:
+              - name: app
+                port: "{{ app.service_port | int }}"
+                targetPort: "{{ app.container_port | int }}"
+
+    - name: Wait for the application Deployment to become ready
+      kubernetes.core.k8s_info:
+        api_version: apps/v1
+        kind: Deployment
+        name: "{{ app.application_name }}"
+        namespace: "{{ app.namespace }}"
+        kubeconfig: "{{ kubeconfig }}"
+        context: "{{ kube_context }}"
+        validate_certs: "{{ validate_certs }}"
+      register: deployment_info
+      until:
+        - deployment_info.resources | length == 1
+        - (deployment_info.resources[0].status.readyReplicas | default(0) | int) >= (app.replicas | int)
+        - (deployment_info.resources[0].status.updatedReplicas | default(0) | int) >= (app.replicas | int)
+      retries: 30
+      delay: 5
+
+    - name: Report the completed application release
+      ansible.builtin.debug:
+        msg:
+          application: "{{ app.application_name }}"
+          namespace: "{{ app.namespace }}"
+          image: "{{ app.image }}"
+          ready_replicas: "{{ deployment_info.resources[0].status.readyReplicas | default(0) | int }}"
+          cluster_context: "{{ kube_context }}"

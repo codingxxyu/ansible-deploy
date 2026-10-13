@@ -1,0 +1,10 @@
+---
+# This file contains demo parameters only. Keep kubeconfigs and tokens outside the package.
+project_name: ansible
+namespace: ansible-demo
+application_name: consumer
+image: harbor.at-servicecenter.com/workshop/consumer:v1
+replicas: 1
+container_port: 8080
+service_port: 8080
+image_pull_policy: IfNotPresent

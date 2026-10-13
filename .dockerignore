@@ -1,0 +1,16 @@
+kubeconf-*.yaml
+*.kubeconfig
+*.kubeconfig.yaml
+.env
+.env.*
+*token*
+*password*
+*secret*
+*credential*
+output/
+dist/
+*.tar
+*.tar.gz
+*.sha256
+.DS_Store
+.git/

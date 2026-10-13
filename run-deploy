@@ -1,0 +1,68 @@
+#!/usr/bin/env sh
+set -eu
+
+package_dir="${DEPLOY_PACKAGE:-/opt/deploy-package}"
+kubeconfig="${KUBECONFIG:-/run/secrets/workload-kubeconfig}"
+global_kubeconfig="${ACP_GLOBAL_KUBECONFIG:-/run/secrets/global-kubeconfig}"
+config_file="${DEPLOY_CONFIG:-$package_dir/config/customer.example.yaml}"
+
+usage() {
+  printf '%s\n' \
+    'Usage:' \
+    '  deploy                         Run the mounted or baked deployment package' \
+    '  shell                         Open an interactive shell' \
+    '  ansible-playbook ...          Run an explicit Ansible command' \
+    '' \
+    'Environment:' \
+    '  DEPLOY_PACKAGE, DEPLOY_CONFIG, KUBECONFIG, ACP_GLOBAL_KUBECONFIG' \
+    '  ACP_TARGET_NAMESPACE, ACP_KUBE_CONTEXT, ACP_GLOBAL_KUBE_CONTEXT, ACP_VALIDATE_CERTS'
+}
+
+run_deploy() {
+  if [ ! -d "$package_dir" ]; then
+    echo "deployment package directory not found: $package_dir" >&2
+    exit 2
+  fi
+  if [ ! -f "$package_dir/playbooks/deploy.yml" ]; then
+    echo "deployment playbook not found: $package_dir/playbooks/deploy.yml" >&2
+    exit 2
+  fi
+  if [ ! -f "$config_file" ]; then
+    echo "deployment config not found: $config_file" >&2
+    exit 2
+  fi
+  if [ ! -f "$kubeconfig" ] || [ ! -f "$global_kubeconfig" ]; then
+    echo "both workload and Global kubeconfigs must be mounted" >&2
+    exit 2
+  fi
+
+  exec ansible-playbook \
+    -i localhost, \
+    -c local \
+    "$package_dir/playbooks/deploy.yml" \
+    -e "deploy_package=$package_dir" \
+    -e "deploy_config=$config_file" \
+    -e "kubeconfig=$kubeconfig" \
+    -e "global_kubeconfig=$global_kubeconfig"
+}
+
+command="${1:-shell}"
+case "$command" in
+  deploy)
+    shift
+    run_deploy "$@"
+    ;;
+  shell)
+    shift
+    exec /bin/sh "$@"
+    ;;
+  ansible-playbook|ansible|ansible-galaxy|kubectl)
+    exec "$@"
+    ;;
+  help|-h|--help)
+    usage
+    ;;
+  *)
+    exec "$@"
+    ;;
+esac
