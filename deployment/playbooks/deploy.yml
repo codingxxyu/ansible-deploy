@@ -10,7 +10,7 @@
     global_kubeconfig: "{{ lookup('env', 'ACP_GLOBAL_KUBECONFIG') | default('/run/secrets/global-kubeconfig', true) }}"
     kube_context: "{{ lookup('env', 'ACP_KUBE_CONTEXT') | default('proxy-connect', true) }}"
     global_kube_context: "{{ lookup('env', 'ACP_GLOBAL_KUBE_CONTEXT') | default('proxy-connect', true) }}"
-    workload_cluster_name: prod-cn-north
+    workload_cluster_env: "{{ lookup('env', 'ACP_WORKLOAD_CLUSTER') | default('', true) }}"
     validate_certs: "{{ lookup('env', 'ACP_VALIDATE_CERTS') | default('true', true) | bool }}"
     mounted_package: /work/project/deployment
     baked_package: /opt/deploy-package
@@ -53,6 +53,17 @@
         file: "{{ deploy_config }}"
         name: app
 
+    - name: Resolve the workload cluster name
+      ansible.builtin.set_fact:
+        workload_cluster_name: "{{ resolved_cluster }}"
+      vars:
+        resolved_cluster: >-
+          {{
+            workload_cluster_env
+            if workload_cluster_env | length > 0
+            else (app.workload_cluster_name | default('', true))
+          }}
+
     - name: Validate deployment parameters
       ansible.builtin.assert:
         that:
@@ -60,6 +71,8 @@
           - app.namespace == 'ansible-demo'
           - app.namespace is string
           - app.namespace | length > 0
+          - workload_cluster_name is string
+          - workload_cluster_name | length > 0
           - app.application_name is string
           - app.application_name | length > 0
           - app.image is string
@@ -67,7 +80,7 @@
           - app.replicas | int > 0
           - app.container_port | int > 0
           - app.service_port | int > 0
-        fail_msg: "Deployment config is incomplete or invalid."
+        fail_msg: "Deployment config is incomplete or invalid. Set workload_cluster_name in the config or ACP_WORKLOAD_CLUSTER."
 
     - name: Confirm target Project on the Global cluster
       kubernetes.core.k8s_info:
@@ -127,7 +140,7 @@
           - project_reconcile.resources | length == 1
           - workload_cluster_name in (project_reconcile.resources[0].spec.clusters | map(attribute='name') | list)
         fail_msg: >-
-          Project ansible must be associated with workload cluster prod-cn-north.
+          Project {{ app.project_name }} must be associated with workload cluster {{ workload_cluster_name }}.
 
     - name: Confirm target Namespace exists on the workload cluster
       kubernetes.core.k8s_info:
@@ -257,5 +270,6 @@
           application: "{{ app.application_name }}"
           namespace: "{{ app.namespace }}"
           image: "{{ app.image }}"
+          workload_cluster: "{{ workload_cluster_name }}"
           ready_replicas: "{{ deployment_info.resources[0].status.readyReplicas | default(0) | int }}"
           cluster_context: "{{ kube_context }}"

@@ -2,6 +2,7 @@
 # This file contains demo parameters only. Keep kubeconfigs and tokens outside the package.
 project_name: ansible
 namespace: ansible-demo
+workload_cluster_name: dcs-workloadcluster
 application_name: nginx
 image: 10.243.166.6:30020/container/nginx:latest
 replicas: 1
