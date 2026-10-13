@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ app.application_name }}
+  namespace: {{ app.namespace }}
+  labels:
+    app.kubernetes.io/name: {{ app.application_name }}
+    app.kubernetes.io/managed-by: ansible
+spec:
+  replicas: {{ app.replicas | int }}
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: {{ app.application_name }}
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: {{ app.application_name }}
+    spec:
+      containers:
+        - name: {{ app.application_name }}
+          image: "{{ app.image }}"
+          imagePullPolicy: {{ app.image_pull_policy | default('IfNotPresent') }}
+          ports:
+            - name: app
+              containerPort: {{ app.container_port | int }}
+          readinessProbe:
+            tcpSocket:
+              port: app
+            initialDelaySeconds: 5
+            periodSeconds: 5
+          livenessProbe:
+            tcpSocket:
+              port: app
+            initialDelaySeconds: 15
+            periodSeconds: 10

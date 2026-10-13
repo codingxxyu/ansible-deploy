@@ -180,50 +180,25 @@
         validate_certs: "{{ validate_certs }}"
       register: namespace_info_after
 
+    - name: Render application Deployment manifest
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../templates/deployment.yml.j2"
+        dest: /tmp/ansible-demo-deployment.yml
+        mode: "0644"
+
     - name: Apply application Deployment
       kubernetes.core.k8s:
         kubeconfig: "{{ kubeconfig }}"
         context: "{{ kube_context }}"
         validate_certs: "{{ validate_certs }}"
         state: present
-        definition: "{{ deployment_manifest | from_yaml }}"
-      vars:
-        deployment_manifest: |
-          apiVersion: apps/v1
-          kind: Deployment
-          metadata:
-            name: {{ app.application_name }}
-            namespace: {{ app.namespace }}
-            labels:
-              app.kubernetes.io/name: {{ app.application_name }}
-              app.kubernetes.io/managed-by: ansible
-          spec:
-            replicas: {{ app.replicas | int }}
-            selector:
-              matchLabels:
-                app.kubernetes.io/name: {{ app.application_name }}
-            template:
-              metadata:
-                labels:
-                  app.kubernetes.io/name: {{ app.application_name }}
-              spec:
-                containers:
-                  - name: {{ app.application_name }}
-                    image: "{{ app.image }}"
-                    imagePullPolicy: {{ app.image_pull_policy | default('IfNotPresent') }}
-                    ports:
-                      - name: app
-                        containerPort: {{ app.container_port | int }}
-                    readinessProbe:
-                      tcpSocket:
-                        port: app
-                      initialDelaySeconds: 5
-                      periodSeconds: 5
-                    livenessProbe:
-                      tcpSocket:
-                        port: app
-                      initialDelaySeconds: 15
-                      periodSeconds: 10
+        src: /tmp/ansible-demo-deployment.yml
+
+    - name: Render application Service manifest
+      ansible.builtin.template:
+        src: "{{ playbook_dir }}/../templates/service.yml.j2"
+        dest: /tmp/ansible-demo-service.yml
+        mode: "0644"
 
     - name: Apply application Service
       kubernetes.core.k8s:
@@ -231,25 +206,7 @@
         context: "{{ kube_context }}"
         validate_certs: "{{ validate_certs }}"
         state: present
-        definition: "{{ service_manifest | from_yaml }}"
-      vars:
-        service_manifest: |
-          apiVersion: v1
-          kind: Service
-          metadata:
-            name: {{ app.application_name }}
-            namespace: {{ app.namespace }}
-            labels:
-              app.kubernetes.io/name: {{ app.application_name }}
-              app.kubernetes.io/managed-by: ansible
-          spec:
-            type: ClusterIP
-            selector:
-              app.kubernetes.io/name: {{ app.application_name }}
-            ports:
-              - name: app
-                port: {{ app.service_port | int }}
-                targetPort: {{ app.container_port | int }}
+        src: /tmp/ansible-demo-service.yml
 
     - name: Wait for the application Deployment to become ready
       kubernetes.core.k8s_info:

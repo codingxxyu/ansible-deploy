@@ -73,13 +73,14 @@ nerdctl --namespace default exec -it acp-ansible-runner /bin/sh
 
 ## 4. 容器里部署
 
-先确认挂进来的是新 Playbook（改过 replicas 类型）：
+先确认挂进来的是新目录（要有 templates）：
 
 ```bash
-grep -A2 'from_yaml' /work/project/deployment/playbooks/deploy.yml
+ls /work/project/deployment/templates
+ls /work/project/deployment/playbooks/deploy.yml
 ```
 
-然后：
+必须看到 `deployment.yml.j2` 和 `service.yml.j2`。没有就把本机更新后的整个 `acp-ansible-deployer` 重新拷到客户机，再按第 2 节重起容器。
 
 ```bash
 ansible-playbook \
@@ -89,14 +90,6 @@ ansible-playbook \
 ```
 
 更新再跑同一条。退出容器：`exit`。
-
-如果还报 `replicas of type int32`，说明容器挂的不是这份新文件。退出后在客户机确认：
-
-```bash
-grep from_yaml /home/itopr/ansible/secure/acp-ansible-deployer/deployment/playbooks/deploy.yml
-```
-
-没有 `from_yaml` 就把本机更新后的项目目录重新拷过去，再 `nerdctl rm -f` 后按第 2 节重起容器。
 
 ---
 
