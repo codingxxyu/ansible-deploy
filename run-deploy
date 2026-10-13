@@ -1,10 +1,27 @@
 #!/usr/bin/env sh
 set -eu
 
-package_dir="${DEPLOY_PACKAGE:-/opt/deploy-package}"
+mounted_package="/work/project/deployment"
+baked_package="/opt/deploy-package"
+
+if [ -n "${DEPLOY_PACKAGE:-}" ]; then
+  package_dir="$DEPLOY_PACKAGE"
+elif [ -f "$mounted_package/playbooks/deploy.yml" ]; then
+  package_dir="$mounted_package"
+else
+  package_dir="$baked_package"
+fi
+
 kubeconfig="${KUBECONFIG:-/run/secrets/workload-kubeconfig}"
 global_kubeconfig="${ACP_GLOBAL_KUBECONFIG:-/run/secrets/global-kubeconfig}"
-config_file="${DEPLOY_CONFIG:-$package_dir/config/customer.example.yaml}"
+
+if [ -n "${DEPLOY_CONFIG:-}" ]; then
+  config_file="$DEPLOY_CONFIG"
+elif [ -f "$package_dir/config/customer.yaml" ]; then
+  config_file="$package_dir/config/customer.yaml"
+else
+  config_file="$package_dir/config/customer.example.yaml"
+fi
 
 usage() {
   printf '%s\n' \
@@ -13,9 +30,14 @@ usage() {
     '  shell                         Open an interactive shell' \
     '  ansible-playbook ...          Run an explicit Ansible command' \
     '' \
+    'Package lookup order:' \
+    '  1. DEPLOY_PACKAGE, if set' \
+    '  2. /work/project/deployment, if the playbook is mounted there' \
+    '  3. /opt/deploy-package, baked into the image' \
+    '' \
     'Environment:' \
     '  DEPLOY_PACKAGE, DEPLOY_CONFIG, KUBECONFIG, ACP_GLOBAL_KUBECONFIG' \
-    '  ACP_TARGET_NAMESPACE, ACP_KUBE_CONTEXT, ACP_GLOBAL_KUBE_CONTEXT, ACP_VALIDATE_CERTS'
+    '  ACP_KUBE_CONTEXT, ACP_GLOBAL_KUBE_CONTEXT, ACP_VALIDATE_CERTS'
 }
 
 run_deploy() {

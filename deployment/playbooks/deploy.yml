@@ -4,16 +4,50 @@
   gather_facts: false
 
   vars:
-    deploy_package: "{{ lookup('env', 'DEPLOY_PACKAGE') | default('/work/project/deployment', true) }}"
-    deploy_config: "{{ lookup('env', 'DEPLOY_CONFIG') | default(deploy_package + '/config/customer.example.yaml', true) }}"
+    deploy_package_env: "{{ lookup('env', 'DEPLOY_PACKAGE') | default('', true) }}"
+    deploy_config_env: "{{ lookup('env', 'DEPLOY_CONFIG') | default('', true) }}"
     kubeconfig: "{{ lookup('env', 'KUBECONFIG') | default('/run/secrets/workload-kubeconfig', true) }}"
     global_kubeconfig: "{{ lookup('env', 'ACP_GLOBAL_KUBECONFIG') | default('/run/secrets/global-kubeconfig', true) }}"
     kube_context: "{{ lookup('env', 'ACP_KUBE_CONTEXT') | default('proxy-connect', true) }}"
     global_kube_context: "{{ lookup('env', 'ACP_GLOBAL_KUBE_CONTEXT') | default('proxy-connect', true) }}"
     workload_cluster_name: prod-cn-north
     validate_certs: "{{ lookup('env', 'ACP_VALIDATE_CERTS') | default('true', true) | bool }}"
+    mounted_package: /work/project/deployment
+    baked_package: /opt/deploy-package
 
   tasks:
+    - name: Resolve the deployment package directory
+      ansible.builtin.set_fact:
+        deploy_package: "{{ resolved_package }}"
+      vars:
+        resolved_package: >-
+          {{
+            deploy_package_env
+            if deploy_package_env | length > 0
+            else (
+              mounted_package
+              if (mounted_package ~ '/playbooks/deploy.yml') is file
+              else baked_package
+            )
+          }}
+
+    - name: Resolve the deployment config file
+      ansible.builtin.set_fact:
+        deploy_config: "{{ resolved_config }}"
+      vars:
+        customer_config: "{{ deploy_package ~ '/config/customer.yaml' }}"
+        example_config: "{{ deploy_package ~ '/config/customer.example.yaml' }}"
+        resolved_config: >-
+          {{
+            deploy_config_env
+            if deploy_config_env | length > 0
+            else (
+              customer_config
+              if customer_config is file
+              else example_config
+            )
+          }}
+
     - name: Load deployment parameters
       ansible.builtin.include_vars:
         file: "{{ deploy_config }}"
